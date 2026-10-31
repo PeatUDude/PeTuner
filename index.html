@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>PeTuner</title>
+    <meta name="description" content="Offline guitar tuner" />
+    <meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1220" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PeTuner" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <label class="select-wrap tuning-picker">
+          <span class="visually-hidden">Tuning</span>
+          <select id="tuning-select"></select>
+        </label>
+        <button id="mic-button" class="icon-button mic" data-state="off" aria-pressed="false" aria-label="Start listening">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="2.5" width="6" height="12" rx="3" />
+            <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
+            <path class="mic-slash" d="M4 3.5l16 17" />
+          </svg>
+        </button>
+        <button id="settings-button" class="icon-button" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+        </button>
+      </header>
+
+      <div id="install-banner" class="banner" hidden></div>
+
+      <main>
+        <div id="headstock" class="headstock"></div>
+
+        <div class="target-row">
+          <span id="string-label" class="string-label"></span>
+          <label class="select-wrap target-picker">
+            <span>Target</span>
+            <select id="target-select"></select>
+          </label>
+        </div>
+
+        <section id="meter" class="meter" data-state="idle" aria-live="polite">
+          <div class="meter-scale">
+            <div class="meter-zone"></div>
+            <div class="meter-ticks"></div>
+            <div class="meter-needle"></div>
+          </div>
+          <div class="meter-labels" aria-hidden="true"><span>−50</span><span>0</span><span>+50</span></div>
+          <p class="meter-message"></p>
+          <p class="meter-detail"></p>
+        </section>
+
+        <div id="tuning-actions" class="tuning-actions" hidden></div>
+      </main>
+    </div>
+
+    <dialog id="settings-dialog" class="sheet" aria-labelledby="settings-title">
+      <header class="sheet-header">
+        <h2 id="settings-title">Settings</h2>
+        <button class="icon-button" data-close aria-label="Close">✕</button>
+      </header>
+
+      <section>
+        <h3>Headstock</h3>
+        <div class="segmented" role="radiogroup" aria-label="Headstock layout">
+          <label><input type="radio" name="headstock" value="3+3" /><span>3 + 3</span></label>
+          <label><input type="radio" name="headstock" value="6-inline" /><span>6 in line</span></label>
+        </div>
+      </section>
+
+      <section>
+        <h3>My tunings</h3>
+        <ul id="custom-tunings" class="tuning-list"></ul>
+      </section>
+
+      <section>
+        <h3>Updates</h3>
+        <p class="muted">Version <span id="app-version"></span></p>
+        <button id="update-button" class="button secondary">Check for updates</button>
+        <p id="update-status" class="muted" role="status"></p>
+      </section>
+
+      <section>
+        <p class="muted small-print">
+          PeTuner works fully offline. Sound from the microphone is analysed on this device only and never leaves
+          it. Reference pitch A4 = 440 Hz.
+        </p>
+      </section>
+    </dialog>
+
+    <dialog id="text-dialog">
+      <form method="dialog">
+        <h2 class="dialog-title"></h2>
+        <label class="field">
+          <span class="dialog-label"></span>
+          <input type="text" autocomplete="off" enterkeyhint="done" />
+        </label>
+        <p class="dialog-error" role="alert"></p>
+        <!-- Confirm comes first so pressing Enter in the field confirms; CSS shows it on the right. -->
+        <div class="dialog-buttons">
+          <button value="ok" class="button primary dialog-confirm"></button>
+          <button value="cancel" class="button secondary" formnovalidate>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog">
+      <form method="dialog">
+        <p class="dialog-message"></p>
+        <div class="dialog-buttons">
+          <button value="ok" class="button danger-solid dialog-confirm"></button>
+          <button value="cancel" class="button secondary">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
