@@ -174,6 +174,24 @@ describe('detectPitch', () => {
     });
   });
 
+  it('reads every string played just 6 dB above the microphone hiss', () => {
+    const noise = noiseSource(7);
+    const hissRms = 0.003;
+    for (const midi of STANDARD_NOTES) {
+      const target = midiToFrequency(midi);
+      let readable = 0;
+      for (let i = 0; i < 10; i++) {
+        // Uniform noise of width w has an RMS of w / √12.
+        const samples = mix(atLevel(pluck(target), hissRms * 2), noise.white(hissRms * Math.sqrt(12)));
+        const result = detectNear(samples, target, SUSTAIN_CLARITY);
+        if (result && result.clarity >= ACQUIRE_CLARITY && Math.abs(centsBetween(result.frequency, target)) < 2) {
+          readable++;
+        }
+      }
+      expect(readable, `MIDI ${midi}`).toBeGreaterThanOrEqual(9);
+    }
+  });
+
   it('never mistakes room noise for a note', () => {
     const noise = noiseSource(42);
     for (const midi of STANDARD_NOTES) {

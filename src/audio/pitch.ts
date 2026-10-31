@@ -19,7 +19,12 @@ export interface PitchOptions {
 const PEAK_THRESHOLD = 0.5;
 /** Everything more than this many semitones below the search band is filtered out first. */
 const HIGH_PASS_BELOW_BAND_SEMITONES = 2;
-/** The filter needs a moment to settle; its output from this first stretch is discarded. */
+/**
+ * ...and everything above this multiple of the band's top, which keeps the first few harmonics
+ * of any note in the band but drops most of the microphone's broadband hiss.
+ */
+const LOW_PASS_BAND_MULTIPLE = 4;
+/** The filters need a moment to settle; their output from this first stretch is discarded. */
 const FILTER_SETTLE_SECONDS = 0.02;
 
 /**
@@ -30,18 +35,24 @@ const FILTER_SETTLE_SECONDS = 0.02;
  * detector from locking onto a harmonic (an octave too high) or a subharmonic
  * (an octave too low) - the classic failure of tuners on a guitar's low strings.
  *
- * Other strings ringing along would smear the reading. Sound below the band is
- * filtered out first, and if a neighbouring string inside the band is also
- * strong, the candidate closest to the middle of the band (the target note) wins.
+ * Other strings ringing along and microphone hiss would smear the reading, so
+ * sound well below or above the band is filtered out first. If a neighbouring
+ * string inside the band is also strong, the candidate closest to the middle of
+ * the band (the target note) wins.
  */
 export function detectPitch(
   samples: Float32Array,
   sampleRate: number,
   minFreq: number,
   maxFreq: number,
-  { minRms = 0.001, minClarity = 0.85 }: PitchOptions = {},
+  { minRms = 0.0005, minClarity = 0.85 }: PitchOptions = {},
 ): PitchResult | null {
-  samples = highPass(samples, sampleRate, minFreq * 2 ** (-HIGH_PASS_BELOW_BAND_SEMITONES / 12));
+  samples = bandLimit(
+    samples,
+    sampleRate,
+    minFreq * 2 ** (-HIGH_PASS_BELOW_BAND_SEMITONES / 12),
+    Math.min(maxFreq * LOW_PASS_BAND_MULTIPLE, sampleRate * 0.45),
+  );
   const n = samples.length;
 
   let energy = 0;
@@ -74,13 +85,15 @@ export function detectPitch(
 let filtered = new Float32Array(0);
 
 /**
- * Removes DC offset, rumble (handling noise, a phone resting on the guitar body) and
- * lower strings ringing along. Rumble keeps the NSDF from dipping below zero, so no
- * pitch peak is found at all; other strings dilute and shift the peak.
- * Fourth-order high-pass (two Butterworth stages); reuses one buffer to avoid garbage
- * every frame. Returns only the settled part, so the result is shorter than the input.
+ * Removes what isn't the string being tuned: DC offset and rumble (handling noise, a
+ * phone resting on the guitar body), lower strings ringing along, and hiss. Rumble
+ * keeps the NSDF from dipping below zero, so no pitch peak is found at all; other
+ * strings and hiss dilute and shift the peak.
+ * Fourth-order high-pass and low-pass (two Butterworth stages each); reuses one buffer
+ * to avoid garbage every frame. Returns only the settled part, so the result is shorter
+ * than the input.
  */
-function highPass(input: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
+function bandLimit(input: Float32Array, sampleRate: number, lowCutHz: number, highCutHz: number): Float32Array {
   const n = input.length;
   if (filtered.length !== n) filtered = new Float32Array(n);
 
@@ -89,32 +102,46 @@ function highPass(input: Float32Array, sampleRate: number, cutoffHz: number): Fl
   mean /= n; // removing the mean first avoids a filter "kick" at the start of the window
   for (let i = 0; i < n; i++) filtered[i] = input[i] - mean;
 
+  const highPass = butterworth('high', lowCutHz, sampleRate);
+  const lowPass = butterworth('low', highCutHz, sampleRate);
+  for (const section of [highPass, highPass, lowPass, lowPass]) applyInPlace(filtered, section);
+
+  const settle = Math.min(Math.round(FILTER_SETTLE_SECONDS * sampleRate), n >> 2);
+  return filtered.subarray(settle);
+}
+
+interface Biquad {
+  b0: number;
+  b1: number;
+  b2: number;
+  a1: number;
+  a2: number;
+}
+
+/** Second-order Butterworth section (RBJ audio EQ cookbook). */
+function butterworth(kind: 'high' | 'low', cutoffHz: number, sampleRate: number): Biquad {
   const w = (2 * Math.PI * cutoffHz) / sampleRate;
   const alpha = Math.sin(w) / Math.SQRT2;
   const cos = Math.cos(w);
   const a0 = 1 + alpha;
-  const b0 = (1 + cos) / 2 / a0;
-  const b1 = -(1 + cos) / a0;
-  const a1 = (-2 * cos) / a0;
-  const a2 = (1 - alpha) / a0;
+  const edge = (kind === 'high' ? 1 + cos : 1 - cos) / 2 / a0;
+  return { b0: edge, b1: (kind === 'high' ? -2 : 2) * edge, b2: edge, a1: (-2 * cos) / a0, a2: (1 - alpha) / a0 };
+}
 
-  for (let stage = 0; stage < 2; stage++) {
-    let x1 = 0;
-    let x2 = 0;
-    let y1 = 0;
-    let y2 = 0;
-    for (let i = 0; i < n; i++) {
-      const x = filtered[i];
-      const y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
-      x2 = x1;
-      x1 = x;
-      y2 = y1;
-      y1 = y;
-      filtered[i] = y;
-    }
+function applyInPlace(x: Float32Array, { b0, b1, b2, a1, a2 }: Biquad): void {
+  let x1 = 0;
+  let x2 = 0;
+  let y1 = 0;
+  let y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const input = x[i];
+    const y = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = input;
+    y2 = y1;
+    y1 = y;
+    x[i] = y;
   }
-  const settle = Math.min(Math.round(FILTER_SETTLE_SECONDS * sampleRate), n >> 2);
-  return filtered.subarray(settle);
 }
 
 /** NSDF from the McLeod paper: 2·r(τ) / m(τ), ranging from -1 to 1. */
