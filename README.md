@@ -39,7 +39,14 @@ While it runs, `petunerSim(10)` in the browser console changes the offset.
 | Offline caching and the update button | `src/pwa/updates.ts`, `vite.config.ts` |
 | App state and wiring | `src/app.ts` |
 
-## Publishing (not done yet)
+## Publishing
 
-The plan is a public GitHub repo deployed to GitHub Pages by a GitHub Actions workflow, so friends
-can open one link and add PeTuner to their home screen.
+Every push to `main` runs `.github/workflows/deploy.yml`, which tests, builds and publishes the app to
+GitHub Pages at <https://peatudude.github.io/PeTuner/>. Installed copies pick up the new version when
+someone presses **Check for updates**.
+
+## Installing on a phone
+
+- **iPhone:** open the link in Safari, tap Share → "Add to Home Screen", then open PeTuner once from the
+  Home Screen while online.
+- **Android:** open the link in Chrome and tap **Install** (or ⋮ → "Install app").
