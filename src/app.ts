@@ -104,7 +104,17 @@ export class App {
       if (document.hidden && this.isListening()) this.stopListening();
     });
 
+    if (simParam !== null) this.showSimulationNotice();
     this.render();
+  }
+
+  /** Makes test mode impossible to miss: it ignores the microphone entirely. */
+  private showSimulationNotice(): void {
+    const notice = document.createElement('p');
+    notice.className = 'sim-notice';
+    notice.textContent =
+      'Test mode: listening to a simulated string, not the microphone. Remove “?sim=…” from the address to use the mic.';
+    $('.topbar').after(notice);
   }
 
   /** The browser has downloaded a new version in the background. */

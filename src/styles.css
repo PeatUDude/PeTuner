@@ -322,6 +322,16 @@ main {
   stroke-linejoin: round;
 }
 
+.sim-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--warn);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 /* --- Headstock ------------------------------------------------------------------ */
 
 .headstock {
