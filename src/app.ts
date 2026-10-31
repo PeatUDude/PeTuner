@@ -328,7 +328,7 @@ export class App {
     for (const s of this.samples) energy += s * s;
     const level = 10 * Math.log10(energy / this.samples.length + 1e-12);
     const detected = pitch ? `clarity ${pitch.clarity.toFixed(2)} · raw ${pitch.frequency.toFixed(1)} Hz` : 'no pitch';
-    this.debugLine!.textContent = `input ${level.toFixed(0)} dB · ${detected}`;
+    this.debugLine!.textContent = `input ${level.toFixed(0)} dB · ${detected}\n${this.input?.description ?? ''}`;
   }
 
   private setMic(state: MicState): void {

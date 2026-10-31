@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { centsBetween, midiToFrequency } from '../music/notes';
 import { STANDARD_NOTES } from '../music/tunings';
 import { detectPitch } from './pitch';
-import { searchBand } from '../tuner/feedback';
+import { ACQUIRE_CLARITY, SUSTAIN_CLARITY, searchBand } from '../tuner/feedback';
 
 const SAMPLE_RATE = 48000;
 const WINDOW = 4096;
@@ -55,9 +55,33 @@ function phoneLowString(frequency: number): Float32Array {
   return out;
 }
 
-function detectNear(samples: Float32Array, targetHz: number) {
+/** Another string that is still ringing: a steady tone with a few overtones. */
+function ringing(frequency: number, amplitude: number): Float32Array {
+  const harmonics = [1, 0.5, 0.3, 0.2, 0.1];
+  return Float32Array.from({ length: WINDOW }, (_, i) =>
+    harmonics.reduce((v, a, h) => v + amplitude * a * Math.sin(2 * Math.PI * frequency * (h + 1) * (i / SAMPLE_RATE) + 1.3 + h), 0),
+  );
+}
+
+const mix = (...signals: Float32Array[]) => signals.reduce((sum, s) => sum.map((v, i) => v + s[i]));
+
+/** Seeded noise generators: white hiss and rumbly "brown" room noise. */
+function noiseSource(seed: number) {
+  let state = seed;
+  const random = () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296 - 0.5;
+  };
+  let brown = 0;
+  return {
+    white: (amplitude: number) => Float32Array.from({ length: WINDOW }, () => amplitude * random()),
+    brown: (amplitude: number) => Float32Array.from({ length: WINDOW }, () => (brown = 0.98 * brown + random()) * amplitude),
+  };
+}
+
+function detectNear(samples: Float32Array, targetHz: number, minClarity?: number) {
   const { minHz, maxHz } = searchBand(targetHz);
-  return detectPitch(samples, SAMPLE_RATE, minHz, maxHz);
+  return detectPitch(samples, SAMPLE_RATE, minHz, maxHz, { minClarity });
 }
 
 describe('detectPitch', () => {
@@ -119,6 +143,48 @@ describe('detectPitch', () => {
     expect(result).not.toBeNull();
     // Inharmonic overtones pull the perceived pitch up very slightly; stay well inside the ±5 cent window.
     expect(Math.abs(centsBetween(result!.frequency, target))).toBeLessThan(3);
+  });
+
+  describe('with other strings ringing along', () => {
+    const highE = midiToFrequency(64);
+    const [lowE, a, d, , b] = STANDARD_NOTES.map(midiToFrequency);
+    const level = 0.03;
+
+    it('reads the high E while the B string still rings at a quarter volume', () => {
+      const result = detectNear(mix(ringing(highE, level), ringing(b, level / 4)), highE, SUSTAIN_CLARITY)!;
+      expect(result.clarity).toBeGreaterThanOrEqual(ACQUIRE_CLARITY);
+      expect(Math.abs(centsBetween(result.frequency, highE))).toBeLessThan(3);
+    });
+
+    it('reads the high E while a lower string rings as loud as it', () => {
+      // These sit below the search band, so the high-pass filter removes most of them.
+      for (const other of [lowE, a, d]) {
+        const result = detectNear(mix(ringing(highE, level), ringing(other, level)), highE, SUSTAIN_CLARITY);
+        expect(result, `${other.toFixed(0)} Hz`).not.toBeNull();
+        expect(Math.abs(centsBetween(result!.frequency, highE)), `${other.toFixed(0)} Hz`).toBeLessThan(3.5);
+      }
+    });
+
+    it('rather shows nothing than a wrong note when a louder string drowns out the target', () => {
+      for (const other of [a, b]) {
+        const result = detectNear(mix(ringing(highE, level), ringing(other, level * 2)), highE, SUSTAIN_CLARITY);
+        const misread = result !== null && Math.abs(centsBetween(result.frequency, highE)) > 5;
+        if (misread) expect(result.clarity, `${other.toFixed(0)} Hz`).toBeLessThan(ACQUIRE_CLARITY);
+      }
+    });
+  });
+
+  it('never mistakes room noise for a note', () => {
+    const noise = noiseSource(42);
+    for (const midi of STANDARD_NOTES) {
+      const target = midiToFrequency(midi);
+      for (let i = 0; i < 40; i++) {
+        for (const samples of [noise.white(0.02), noise.brown(0.002)]) {
+          const result = detectNear(samples, target, SUSTAIN_CLARITY);
+          expect(result?.clarity ?? 0).toBeLessThan(ACQUIRE_CLARITY);
+        }
+      }
+    }
   });
 
   it('is fast enough for real time on the lowest allowed note', () => {

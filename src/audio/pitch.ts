@@ -11,10 +11,14 @@ export interface PitchOptions {
   minClarity?: number;
 }
 
-/** Fraction of the highest peak a candidate must reach to count as the pitch (McLeod's "k"). */
-const PEAK_THRESHOLD = 0.9;
-/** Rumble below this is removed before analysis; the lowest note PeTuner tunes to is ~62 Hz. */
-const HIGH_PASS_HZ = 40;
+/**
+ * Fraction of the highest peak a candidate must reach to count as the pitch (McLeod's "k").
+ * Lower than McLeod's 0.9: the band already rules out octave errors, and a lower bar lets
+ * the target string win over a louder neighbouring string.
+ */
+const PEAK_THRESHOLD = 0.5;
+/** Everything more than this many semitones below the search band is filtered out first. */
+const HIGH_PASS_BELOW_BAND_SEMITONES = 2;
 /** The filter needs a moment to settle; its output from this first stretch is discarded. */
 const FILTER_SETTLE_SECONDS = 0.02;
 
@@ -25,6 +29,10 @@ const FILTER_SETTLE_SECONDS = 0.02;
  * Restricting the search to a band around the expected note is what keeps the
  * detector from locking onto a harmonic (an octave too high) or a subharmonic
  * (an octave too low) - the classic failure of tuners on a guitar's low strings.
+ *
+ * Other strings ringing along would smear the reading. Sound below the band is
+ * filtered out first, and if a neighbouring string inside the band is also
+ * strong, the candidate closest to the middle of the band (the target note) wins.
  */
 export function detectPitch(
   samples: Float32Array,
@@ -33,7 +41,7 @@ export function detectPitch(
   maxFreq: number,
   { minRms = 0.001, minClarity = 0.85 }: PitchOptions = {},
 ): PitchResult | null {
-  samples = highPass(samples, sampleRate);
+  samples = highPass(samples, sampleRate, minFreq * 2 ** (-HIGH_PASS_BELOW_BAND_SEMITONES / 12));
   const n = samples.length;
 
   let energy = 0;
@@ -50,7 +58,12 @@ export function detectPitch(
 
   let highest = 0;
   for (const p of peaks) highest = Math.max(highest, nsdf[p]);
-  const chosen = peaks.find((p) => nsdf[p] >= PEAK_THRESHOLD * highest)!;
+  const targetLag = sampleRate / Math.sqrt(minFreq * maxFreq);
+  let chosen = -1;
+  for (const p of peaks) {
+    if (nsdf[p] < PEAK_THRESHOLD * highest) continue;
+    if (chosen < 0 || Math.abs(p - targetLag) < Math.abs(chosen - targetLag)) chosen = p;
+  }
 
   const { lag, value } = refinePeak(nsdf, chosen);
   const frequency = sampleRate / lag;
@@ -61,20 +74,22 @@ export function detectPitch(
 let filtered = new Float32Array(0);
 
 /**
- * Removes DC offset and rumble (handling noise, a phone resting on the guitar body).
- * Left in, they keep the NSDF from dipping below zero, so no pitch peak is ever found.
- * Second-order Butterworth high-pass; reuses one buffer to avoid garbage every frame.
- * Returns only the settled part, so the result is shorter than the input.
+ * Removes DC offset, rumble (handling noise, a phone resting on the guitar body) and
+ * lower strings ringing along. Rumble keeps the NSDF from dipping below zero, so no
+ * pitch peak is found at all; other strings dilute and shift the peak.
+ * Fourth-order high-pass (two Butterworth stages); reuses one buffer to avoid garbage
+ * every frame. Returns only the settled part, so the result is shorter than the input.
  */
-function highPass(input: Float32Array, sampleRate: number): Float32Array {
+function highPass(input: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
   const n = input.length;
   if (filtered.length !== n) filtered = new Float32Array(n);
 
   let mean = 0;
   for (let i = 0; i < n; i++) mean += input[i];
   mean /= n; // removing the mean first avoids a filter "kick" at the start of the window
+  for (let i = 0; i < n; i++) filtered[i] = input[i] - mean;
 
-  const w = (2 * Math.PI * HIGH_PASS_HZ) / sampleRate;
+  const w = (2 * Math.PI * cutoffHz) / sampleRate;
   const alpha = Math.sin(w) / Math.SQRT2;
   const cos = Math.cos(w);
   const a0 = 1 + alpha;
@@ -83,18 +98,20 @@ function highPass(input: Float32Array, sampleRate: number): Float32Array {
   const a1 = (-2 * cos) / a0;
   const a2 = (1 - alpha) / a0;
 
-  let x1 = 0;
-  let x2 = 0;
-  let y1 = 0;
-  let y2 = 0;
-  for (let i = 0; i < n; i++) {
-    const x = input[i] - mean;
-    const y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
-    x2 = x1;
-    x1 = x;
-    y2 = y1;
-    y1 = y;
-    filtered[i] = y;
+  for (let stage = 0; stage < 2; stage++) {
+    let x1 = 0;
+    let x2 = 0;
+    let y1 = 0;
+    let y2 = 0;
+    for (let i = 0; i < n; i++) {
+      const x = filtered[i];
+      const y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1;
+      x1 = x;
+      y2 = y1;
+      y1 = y;
+      filtered[i] = y;
+    }
   }
   const settle = Math.min(Math.round(FILTER_SETTLE_SECONDS * sampleRate), n >> 2);
   return filtered.subarray(settle);

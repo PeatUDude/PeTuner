@@ -5,6 +5,8 @@ export class MicPermissionError extends Error {}
 
 export interface AudioInput {
   readonly sampleRate: number;
+  /** Short description of the input and its processing, for the ?debug readout. */
+  readonly description: string;
   /** Fills `buffer` (length WINDOW_SIZE) with the most recent audio. */
   read(buffer: Float32Array): void;
   stop(): void;
@@ -45,8 +47,16 @@ export async function openMicrophone(): Promise<AudioInput> {
   analyser.fftSize = WINDOW_SIZE;
   context.createMediaStreamSource(stream).connect(analyser);
 
+  // Browsers may ignore the constraints above; report what was actually applied.
+  const settings = stream.getAudioTracks()[0]?.getSettings() ?? {};
+  const flag = (value: unknown) => (value === true ? 'on' : value === false ? 'off' : String(value ?? '?'));
+  const description =
+    `${context.sampleRate} Hz · echo cancel ${flag(settings.echoCancellation)}` +
+    ` · noise suppr ${flag(settings.noiseSuppression)} · auto gain ${flag(settings.autoGainControl)}`;
+
   return {
     sampleRate: context.sampleRate,
+    description,
     read: (buffer) => analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>),
     stop: () => {
       stream.getTracks().forEach((track) => track.stop());
@@ -76,6 +86,7 @@ export async function openSimulatedInput(): Promise<AudioInput & { setFrequency(
 
   return {
     sampleRate: context.sampleRate,
+    description: `${context.sampleRate} Hz · simulated string`,
     read: (buffer) => analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>),
     stop: () => void context.close(),
     setFrequency: (hz) => oscillator.frequency.setValueAtTime(hz, context.currentTime),

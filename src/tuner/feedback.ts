@@ -40,9 +40,12 @@ export function evaluate(frequency: number, targetHz: number): Feedback {
   };
 }
 
-/** How periodic a sound must be to start a reading... */
+/**
+ * How periodic a sound must be to start a reading. Room noise stays below ~0.45. Going lower
+ * than 0.8 lets through readings smeared by a loud neighbouring string (tens of cents off).
+ */
 export const ACQUIRE_CLARITY = 0.8;
-/** ...and to keep following a note that is already being read, as it fades. */
+/** How periodic it must stay to keep following a note that is already being read, as it fades. */
 export const SUSTAIN_CLARITY = 0.6;
 
 /**

@@ -571,6 +571,7 @@ main {
 
 .meter-debug {
   margin: 8px 0 0;
+  white-space: pre-line;
   color: var(--muted);
   font: 0.8rem ui-monospace, Menlo, Consolas, monospace;
 }
