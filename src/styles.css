@@ -563,6 +563,18 @@ main {
   color: var(--ok);
 }
 
+.meter[data-stale] .meter-needle,
+.meter[data-stale] .meter-message,
+.meter[data-stale] .meter-detail {
+  opacity: 0.45;
+}
+
+.meter-debug {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font: 0.8rem ui-monospace, Menlo, Consolas, monospace;
+}
+
 .meter[data-state='idle'] .meter-message,
 .meter[data-state='waiting'] .meter-message {
   font-size: 1.2rem;

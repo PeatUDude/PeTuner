@@ -3,3 +3,4 @@ dist/
 dev-dist/
 .claude/
 *.log
+*.stackdump

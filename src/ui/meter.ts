@@ -48,8 +48,14 @@ export class Meter {
     this.detail.textContent = `${sign}${Math.abs(Math.round(cents))} cents · hearing ${frequency.toFixed(1)} Hz`;
   }
 
+  /** The note has faded: keep the last reading visible but dimmed. */
+  markStale(): void {
+    this.root.dataset.stale = '';
+  }
+
   private setState(state: MeterState): void {
     this.root.dataset.state = state;
+    delete this.root.dataset.stale;
   }
 
   private setNeedle(cents: number): void {

@@ -1,7 +1,7 @@
 {
   "name": "petuner",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "PeTuner - an offline guitar tuner that runs as an installable web app",
   "type": "module",
   "scripts": {

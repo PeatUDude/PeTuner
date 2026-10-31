@@ -5,7 +5,7 @@ import {
   openSimulatedInput,
   type AudioInput,
 } from './audio/listener';
-import { detectPitch } from './audio/pitch';
+import { detectPitch, type PitchResult } from './audio/pitch';
 import { midiToFrequency, noteName, noteNameBothSpellings } from './music/notes';
 import {
   DEFAULT_TUNING,
@@ -23,7 +23,7 @@ import {
   type Tuning,
 } from './music/tunings';
 import { loadCustomTunings, loadSettings, saveCustomTunings, saveSettings, type HeadstockLayout } from './storage';
-import { PitchSmoother, TunedTracker, evaluate, searchBand } from './tuner/feedback';
+import { PitchSmoother, SUSTAIN_CLARITY, TunedTracker, evaluate, searchBand } from './tuner/feedback';
 import { askConfirm, askText } from './ui/dialogs';
 import { onPegSelected, renderHeadstock } from './ui/headstock';
 import { Meter } from './ui/meter';
@@ -33,9 +33,13 @@ type MicState = 'off' | 'starting' | 'on' | 'denied' | 'error';
 
 /** How often the microphone is analysed. */
 const READ_INTERVAL_MS = 50;
+/** After a note fades, its last reading stays on screen (dimmed) this long. */
+const READING_HOLD_MS = 5000;
 
 /** Dev-only: `?sim=<cents>` replaces the microphone with a synthetic string that far off target. */
 const simParam = import.meta.env.DEV ? new URLSearchParams(location.search).get('sim') : null;
+/** `?debug` shows raw input level and detector output under the meter, also in the installed app. */
+const debugMode = new URLSearchParams(location.search).has('debug');
 
 const $ = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -56,6 +60,8 @@ export class App {
   private readonly samples = createSampleBuffer();
   private readonly smoother = new PitchSmoother();
   private readonly tracker = new TunedTracker();
+  private lastReadingAt: number | null = null;
+  private debugLine: HTMLElement | null = null;
   private simulate: ((targetHz: number) => void) | null = null;
   private simCents = Number(simParam) || 0;
 
@@ -105,6 +111,11 @@ export class App {
     });
 
     if (simParam !== null) this.showSimulationNotice();
+    if (debugMode) {
+      this.debugLine = document.createElement('p');
+      this.debugLine.className = 'meter-debug';
+      $('#meter').append(this.debugLine);
+    }
     this.render();
   }
 
@@ -280,6 +291,7 @@ export class App {
   private resetDetection(): void {
     this.smoother.reset();
     this.tracker.reset();
+    this.lastReadingAt = null;
     if (this.mic === 'on') this.showMessage();
   }
 
@@ -291,20 +303,32 @@ export class App {
 
     this.input.read(this.samples);
     const { minHz, maxHz } = searchBand(targetHz);
-    const pitch = detectPitch(this.samples, this.input.sampleRate, minHz, maxHz);
-    const frequency = this.smoother.push(pitch?.frequency ?? null, now);
+    // The smoother decides whether a reading this faint is trustworthy.
+    const pitch = detectPitch(this.samples, this.input.sampleRate, minHz, maxHz, { minClarity: SUSTAIN_CLARITY });
+    const frequency = this.smoother.push(pitch, now);
+    if (this.debugLine) this.showDebug(pitch);
 
     if (frequency === null) {
       this.tracker.update(null, now);
-      this.showMessage();
+      if (this.lastReadingAt !== null && now - this.lastReadingAt < READING_HOLD_MS) this.meter.markStale();
+      else this.showMessage();
       return;
     }
+    this.lastReadingAt = now;
     const feedback = evaluate(frequency, targetHz);
     this.meter.showReading(feedback, frequency);
     if (this.tracker.update(feedback.inTune, now) && !this.tuned[this.selected]) {
       this.tuned[this.selected] = true;
       this.renderHeadstock();
     }
+  }
+
+  private showDebug(pitch: PitchResult | null): void {
+    let energy = 0;
+    for (const s of this.samples) energy += s * s;
+    const level = 10 * Math.log10(energy / this.samples.length + 1e-12);
+    const detected = pitch ? `clarity ${pitch.clarity.toFixed(2)} · raw ${pitch.frequency.toFixed(1)} Hz` : 'no pitch';
+    this.debugLine!.textContent = `input ${level.toFixed(0)} dB · ${detected}`;
   }
 
   private setMic(state: MicState): void {

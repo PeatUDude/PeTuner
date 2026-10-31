@@ -24,17 +24,37 @@ describe('evaluate', () => {
 });
 
 describe('PitchSmoother', () => {
+  const clear = (frequency: number) => ({ frequency, clarity: 0.95 });
+  const faint = (frequency: number) => ({ frequency, clarity: 0.65 });
+
   it('ignores a single glitch', () => {
     const s = new PitchSmoother();
-    [110, 110.2, 220, 110.1, 109.9].forEach((f, i) => s.push(f, i * 50));
-    expect(s.push(110, 250)).toBeCloseTo(110.1, 5);
+    [110, 110.2, 220, 110.1, 109.9].forEach((f, i) => s.push(clear(f), i * 50));
+    expect(s.push(clear(110), 250)).toBeCloseTo(110.1, 5);
   });
 
   it('holds the reading through short gaps, then lets go', () => {
     const s = new PitchSmoother(5, 400);
-    s.push(110, 0);
+    s.push(clear(110), 0);
     expect(s.push(null, 300)).toBe(110);
     expect(s.push(null, 500)).toBeNull();
+  });
+
+  it('needs a clear sound to start a reading', () => {
+    const s = new PitchSmoother();
+    expect(s.push(faint(110), 0)).toBeNull();
+  });
+
+  it('keeps following a fading note near the current reading', () => {
+    const s = new PitchSmoother(5, 400);
+    s.push(clear(110), 0);
+    for (let t = 300; t <= 3000; t += 300) expect(s.push(faint(110.3), t)).not.toBeNull();
+  });
+
+  it('does not let a faint sound elsewhere hijack the reading', () => {
+    const s = new PitchSmoother(1, 400);
+    s.push(clear(110), 0);
+    expect(s.push(faint(130), 50)).toBe(110);
   });
 });
 

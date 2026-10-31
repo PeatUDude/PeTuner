@@ -26,6 +26,35 @@ function pluck(frequency: number, harmonics = [1, 0.8, 0.5, 0.35, 0.2, 0.12], no
   return out;
 }
 
+/** Scales a signal to the given RMS level (full scale = 1). */
+function atLevel(samples: Float32Array, rms: number): Float32Array {
+  let energy = 0;
+  for (const s of samples) energy += s * s;
+  const gain = rms / Math.sqrt(energy / samples.length);
+  return samples.map((s) => s * gain);
+}
+
+/**
+ * What a phone hears from a low string: its tiny mic barely picks up the fundamental, wound
+ * strings have slightly sharp overtones, and there's DC offset plus low rumble from handling.
+ */
+function phoneLowString(frequency: number): Float32Array {
+  const harmonics = [0.12, 1, 0.8, 0.55, 0.35, 0.25, 0.15];
+  const inharmonicity = 1e-4;
+  const out = new Float32Array(WINDOW);
+  for (let i = 0; i < WINDOW; i++) {
+    const t = i / SAMPLE_RATE;
+    let v = 0.5 + 1.2 * Math.sin(2 * Math.PI * 12 * t);
+    harmonics.forEach((amp, h) => {
+      const n = h + 1;
+      const partial = frequency * n * Math.sqrt(1 + inharmonicity * n * n);
+      v += amp * Math.sin(2 * Math.PI * partial * t + n);
+    });
+    out[i] = 0.05 * v;
+  }
+  return out;
+}
+
 function detectNear(samples: Float32Array, targetHz: number) {
   const { minHz, maxHz } = searchBand(targetHz);
   return detectPitch(samples, SAMPLE_RATE, minHz, maxHz);
@@ -73,6 +102,23 @@ describe('detectPitch', () => {
     const target = midiToFrequency(50);
     expect(detectNear(new Float32Array(WINDOW), target)).toBeNull();
     expect(detectNear(pluck(target, [0], 0.3, 7), target)).toBeNull();
+  });
+
+  it('hears a quietly played or fading string (about -56 dBFS)', () => {
+    for (const midi of STANDARD_NOTES) {
+      const target = midiToFrequency(midi);
+      const result = detectNear(atLevel(pluck(target), 0.0016), target);
+      expect(result, `MIDI ${midi}`).not.toBeNull();
+      expect(Math.abs(centsBetween(result!.frequency, target))).toBeLessThan(1);
+    }
+  });
+
+  it('hears a low E the way a phone microphone picks it up', () => {
+    const target = midiToFrequency(40);
+    const result = detectNear(phoneLowString(target), target);
+    expect(result).not.toBeNull();
+    // Inharmonic overtones pull the perceived pitch up very slightly; stay well inside the ±5 cent window.
+    expect(Math.abs(centsBetween(result!.frequency, target))).toBeLessThan(3);
   });
 
   it('is fast enough for real time on the lowest allowed note', () => {

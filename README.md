@@ -27,6 +27,10 @@ npm run icons      # regenerate the icons in public/ from scripts/icons.mjs
 to replace the microphone with a synthetic string that many cents off the selected target.
 While it runs, `petunerSim(10)` in the browser console changes the offset.
 
+**Tuner not reacting?** Add `?debug` to the address (also works on the live site, e.g.
+`https://peatudude.github.io/PeTuner/?debug`) to see the microphone input level, how clear the
+detected pitch is, and the raw frequency under the meter.
+
 ## How it works
 
 | Area | Files |

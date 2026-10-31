@@ -1,3 +1,4 @@
+import type { PitchResult } from '../audio/pitch';
 import { centsBetween } from '../music/notes';
 
 /** A string within this many cents of its target counts as in tune. */
@@ -39,7 +40,16 @@ export function evaluate(frequency: number, targetHz: number): Feedback {
   };
 }
 
-/** Steadies the raw detector output: median of the last few readings, held briefly through gaps. */
+/** How periodic a sound must be to start a reading... */
+export const ACQUIRE_CLARITY = 0.8;
+/** ...and to keep following a note that is already being read, as it fades. */
+export const SUSTAIN_CLARITY = 0.6;
+
+/**
+ * Steadies the raw detector output: median of the last few readings, held briefly through gaps.
+ * Uses hysteresis: a clear signal is needed to start a reading, but a fading string keeps being
+ * followed at lower clarity as long as it stays near the current note.
+ */
 export class PitchSmoother {
   private recent: number[] = [];
   private lastHeard = -Infinity;
@@ -50,9 +60,15 @@ export class PitchSmoother {
   ) {}
 
   /** Feeds one detector result and returns the smoothed frequency, or null when nothing is being heard. */
-  push(frequency: number | null, now: number): number | null {
-    if (frequency !== null) {
-      this.recent.push(frequency);
+  push(pitch: PitchResult | null, now: number): number | null {
+    const current = this.recent.length ? median(this.recent) : null;
+    const accepted =
+      pitch !== null &&
+      (pitch.clarity >= ACQUIRE_CLARITY ||
+        (pitch.clarity >= SUSTAIN_CLARITY && current !== null && Math.abs(centsBetween(pitch.frequency, current)) < 100));
+
+    if (accepted) {
+      this.recent.push(pitch.frequency);
       if (this.recent.length > this.size) this.recent.shift();
       this.lastHeard = now;
     } else if (now - this.lastHeard > this.holdMs) {

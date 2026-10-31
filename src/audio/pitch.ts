@@ -13,6 +13,10 @@ export interface PitchOptions {
 
 /** Fraction of the highest peak a candidate must reach to count as the pitch (McLeod's "k"). */
 const PEAK_THRESHOLD = 0.9;
+/** Rumble below this is removed before analysis; the lowest note PeTuner tunes to is ~62 Hz. */
+const HIGH_PASS_HZ = 40;
+/** The filter needs a moment to settle; its output from this first stretch is discarded. */
+const FILTER_SETTLE_SECONDS = 0.02;
 
 /**
  * Detects the fundamental frequency of `samples` using the McLeod Pitch Method,
@@ -27,8 +31,9 @@ export function detectPitch(
   sampleRate: number,
   minFreq: number,
   maxFreq: number,
-  { minRms = 0.005, minClarity = 0.85 }: PitchOptions = {},
+  { minRms = 0.001, minClarity = 0.85 }: PitchOptions = {},
 ): PitchResult | null {
+  samples = highPass(samples, sampleRate);
   const n = samples.length;
 
   let energy = 0;
@@ -51,6 +56,48 @@ export function detectPitch(
   const frequency = sampleRate / lag;
   if (value < minClarity || frequency < minFreq || frequency > maxFreq) return null;
   return { frequency, clarity: Math.min(1, value) };
+}
+
+let filtered = new Float32Array(0);
+
+/**
+ * Removes DC offset and rumble (handling noise, a phone resting on the guitar body).
+ * Left in, they keep the NSDF from dipping below zero, so no pitch peak is ever found.
+ * Second-order Butterworth high-pass; reuses one buffer to avoid garbage every frame.
+ * Returns only the settled part, so the result is shorter than the input.
+ */
+function highPass(input: Float32Array, sampleRate: number): Float32Array {
+  const n = input.length;
+  if (filtered.length !== n) filtered = new Float32Array(n);
+
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += input[i];
+  mean /= n; // removing the mean first avoids a filter "kick" at the start of the window
+
+  const w = (2 * Math.PI * HIGH_PASS_HZ) / sampleRate;
+  const alpha = Math.sin(w) / Math.SQRT2;
+  const cos = Math.cos(w);
+  const a0 = 1 + alpha;
+  const b0 = (1 + cos) / 2 / a0;
+  const b1 = -(1 + cos) / a0;
+  const a1 = (-2 * cos) / a0;
+  const a2 = (1 - alpha) / a0;
+
+  let x1 = 0;
+  let x2 = 0;
+  let y1 = 0;
+  let y2 = 0;
+  for (let i = 0; i < n; i++) {
+    const x = input[i] - mean;
+    const y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x;
+    y2 = y1;
+    y1 = y;
+    filtered[i] = y;
+  }
+  const settle = Math.min(Math.round(FILTER_SETTLE_SECONDS * sampleRate), n >> 2);
+  return filtered.subarray(settle);
 }
 
 /** NSDF from the McLeod paper: 2·r(τ) / m(τ), ranging from -1 to 1. */
