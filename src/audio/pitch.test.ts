@@ -128,10 +128,11 @@ describe('detectPitch', () => {
     expect(detectNear(pluck(target, [0], 0.3, 7), target)).toBeNull();
   });
 
-  it('hears a quietly played or fading string (about -56 dBFS)', () => {
+  it('hears a softly played or fading string (about -74 dBFS)', () => {
+    // A phone's own mic noise sits far lower, so only the clarity check should decide.
     for (const midi of STANDARD_NOTES) {
       const target = midiToFrequency(midi);
-      const result = detectNear(atLevel(pluck(target), 0.0016), target);
+      const result = detectNear(atLevel(pluck(target), 0.0002), target);
       expect(result, `MIDI ${midi}`).not.toBeNull();
       expect(Math.abs(centsBetween(result!.frequency, target))).toBeLessThan(1);
     }

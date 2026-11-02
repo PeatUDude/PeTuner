@@ -5,7 +5,11 @@ export interface PitchResult {
 }
 
 export interface PitchOptions {
-  /** Ignore signals quieter than this RMS level (full scale = 1). */
+  /**
+   * Ignore signals quieter than this RMS level (full scale = 1), measured after filtering.
+   * Kept very low: phone microphones are quiet, and clarity, not loudness, is what keeps
+   * noise from being read as a note.
+   */
   minRms?: number;
   /** Ignore results less periodic than this. */
   minClarity?: number;
@@ -45,7 +49,7 @@ export function detectPitch(
   sampleRate: number,
   minFreq: number,
   maxFreq: number,
-  { minRms = 0.0005, minClarity = 0.85 }: PitchOptions = {},
+  { minRms = 0.0001, minClarity = 0.85 }: PitchOptions = {},
 ): PitchResult | null {
   samples = bandLimit(
     samples,
